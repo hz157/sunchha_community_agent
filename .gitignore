@@ -1,0 +1,100 @@
+########################
+# macOS
+########################
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# 文件夹中的图标文件
+Icon
+
+# 缓存
+.Spotlight-V100
+.Trashes
+.fseventsd
+
+# 网络共享产生的 metadata
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+
+########################
+# VSCode
+########################
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.history/
+
+########################
+# Python
+########################
+
+# 字节码缓存
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 虚拟环境
+.venv/
+venv/
+env/
+ENV/
+.env
+.venv
+.python-version
+
+# 构建产物
+build/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# 单元测试 & 覆盖率
+.pytest_cache/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+htmlcov/
+
+# 静态检查/类型检查
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+.ruff_cache/
+
+# tox / nox
+.tox/
+.nox/
+
+# Jupyter
+.ipynb_checkpoints
+
+# 日志
+*.log
+
+# 本地配置
+*.swp
+*.swo
