@@ -12,7 +12,7 @@ from utils.color import *
 VERSION = "v1.0.0"
 RELEASEDATE = "2025-12-28"
 PLATFORM = None
-RUN_MODE = get_config_value("run_mode")
+RUN_MODE = get_config_value("run_mode").upper() 
     
 def clear_console():
     """ 清空控制台 """
@@ -53,6 +53,7 @@ def welcome():
     )
 
 
+
 def menu():
     """ 显示菜单并处理用户输入 """
     # options = {
@@ -60,12 +61,19 @@ def menu():
     # }
 
     while True:
-        print(COLOR_GREEN + """
-        请选择要执行的操作：
-        1. 自动匹配 (自动匹配Excel当中的command列)
-        2. 查看支持的设备制造商
-        q. 退出
-        """ + COLOR_RESET)
+        if RUN_MODE == "ONLINE":
+            print(COLOR_GREEN + """
+                请选择要执行的操作：
+                1. 开始巡检
+                2. 查看支持的设备制造商
+                q. 退出
+                """ + COLOR_RESET)
+        elif RUN_MODE == "OFFLINE":
+            COLOR_YELLOW + "⚠️ 警告：当前运行模式为离线模式，将仅使用本地表内commands进行匹配。" + COLOR_RESET
+            print(COLOR_GREEN + """
+                请选择要执行的操作：
+                1. 开始巡检 (自动匹配Excel当中的command列)
+                q. 退出""" + COLOR_RESET)
         
         choice = input(COLOR_YELLOW + "请输入选项，默认1 (1/2/q): " + COLOR_RESET).strip().lower()
 
@@ -74,7 +82,7 @@ def menu():
             break
         elif choice == "1":
             check_devices()
-        elif choice == "2":
+        elif choice == "2" and RUN_MODE == "ONLINE":
             # 请求社区接口获取当前交换机支持列表
             manuf = api_client.getManuf()
 
@@ -108,10 +116,10 @@ def check_devices():
 
             if "SSH" in protocol:
                 print(f"🖥️ 设备检查 | 协议: SSH    | IP: {ip}")
-                query_manuf_command(item)
+                query_manuf_command(item, RUN_MODE)
             elif "TELNET" in protocol:
                 print(f"🖥️ 设备检查 | 协议: TELNET | IP: {ip}")
-                query_manuf_command(item)
+                query_manuf_command(item, RUN_MODE)
             else:
                 print(f"{COLOR_RED}⚠️ 跳过设备 | 协议不支持: {protocol or 'None'} | IP: {ip}{COLOR_RESET}")
 

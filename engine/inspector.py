@@ -7,6 +7,7 @@ from utils.color import *
 
 
 
+
 def execute_commands(device, commands):
     """
     执行指定设备的命令列表，并将每条命令的回显输出保存到本地文件。
@@ -88,21 +89,32 @@ def execute_commands(device, commands):
             print(f"{COLOR_RED}❌ 设备 {device.get('ip')} 执行 {command} 发生错误: {e}{COLOR_RESET}")
 
 
-def query_manuf_command(device):
+def query_manuf_command(device, run_mode="ONLINE"):
     """检查设备品牌并执行默认命令"""
-    target = (device.get("manuf") or "").upper()
-    # 从社区数据库中获取品牌
-    manuf = getManufByName(target)
-    # 数据库中查找不到的品牌，直接报错返回
-    if not manuf:
-        print(f"{COLOR_RED}⚠️ 设备品牌 {device.get('manuf')} 不存在{COLOR_RESET}")
-        return
+    if run_mode == "OFFLINE":
+        try:
+            commands = []
+            for i in device.get("commands").split(","):
+                commands.append({"command": i.strip()})
+        except:
+            print(f"{COLOR_RED}⚠️ 设备 {device.get('ip')} 配置的命令格式错误，跳过{COLOR_RESET}")
+            return
+        execute_commands(device, commands)
+    elif run_mode == "ONLINE":
+        target = (device.get("manuf") or "").upper()
+        # 从社区数据库中获取品牌
+        manuf = getManufByName(target)
+
+        # 数据库中查找不到的品牌，直接报错返回
+        if not manuf:
+            print(f"{COLOR_RED}⚠️ 设备品牌 {device.get('manuf')} 不存在{COLOR_RESET}")
+            return
 
 
-    commands = getCommand(manuf_id=manuf.get("id"))
-    if not commands:
-        print(f"{COLOR_RED}⚠️ 设备品牌 {manuf.get('en_name')} 没有配置命令，跳过{COLOR_RESET}")
+        commands = getCommand(manuf_id=manuf.get("id"))
+        if not commands:
+            print(f"{COLOR_RED}⚠️ 设备品牌 {manuf.get('en_name')} 没有配置命令，跳过{COLOR_RESET}")
+            return
+        execute_commands(device, commands)
         return
-    execute_commands(device, commands)
-    return
     
