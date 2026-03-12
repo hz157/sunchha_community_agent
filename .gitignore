@@ -98,3 +98,5 @@ dmypy.json
 # 本地配置
 *.swp
 *.swo
+
+/output/*
