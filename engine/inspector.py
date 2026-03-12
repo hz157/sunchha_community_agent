@@ -1,120 +1,199 @@
-from imaplib import Commands
 import os
-from cloud.api_client import *
-from report.generator import write_to_txt
+import re
+from datetime import datetime
+from typing import Any, Dict, List
+
+from cloud.api_client import getCommand, getManufByName
+from cloud.ai_analysis import analyze_inspection_result, is_ai_enabled
+from cloud.webhook_client import notify_inspection_result
 from engine.rclient import ssh_exec_command, telnet_exec_command
-from utils.color import *
+from report.generator import build_device_report_html, write_html, write_json, write_pdf_from_text, write_text
+from utils.color import COLOR_BLUE, COLOR_GREEN, COLOR_RED, COLOR_YELLOW, COLOR_RESET
 
 
+def _safe_filename(name: str) -> str:
+    return re.sub(r"[\\/:*?\"<>|]+", "_", name).strip() or "empty_command"
 
 
-def execute_commands(device, commands):
-    """
-    执行指定设备的命令列表，并将每条命令的回显输出保存到本地文件。
+def _device_run_dir(run_id: str, ip: str) -> str:
+    return os.path.join("output", run_id, "devices", ip)
 
-    此方法依次通过 SSH 执行传入的命令列表。每个命令项应为一个包含 'command' 字段的字典。
-    执行成功后，会在 output/<设备IP>/ 目录下创建以命令名命名的 .txt 文件保存回显内容。
-    若 SSH 连接失败，将立即停止对该设备的后续命令执行。
 
-    Args:
-        device (dict):
-            设备信息字典，包含以下字段：
-                - ip (str): 设备 IP 地址  
-                - username (str): SSH 登录用户名  
-                - password (str): SSH 登录密码  
-                - port (int): SSH 端口号  
+def _build_device_report(result: Dict[str, Any]) -> str:
+    command_lines: List[str] = []
+    for item in result.get("command_results", []):
+        status = "成功" if item.get("success") else "失败"
+        command_lines.append(f"- [{status}] `{item.get('command')}` -> {item.get('file_path')}")
 
-        commands (list[dict]):
-            需要执行的命令项列表。
-            每个元素格式示例：
-                {
-                    "command": "display version"
-                }
-            若某项中 command 为空，将自动跳过。
+    ai_data = result.get("ai_analysis") or {}
+    ai_block = [
+        f"- 状态: {'成功' if ai_data.get('success') else '未执行/失败'}",
+        f"- 平台: {ai_data.get('provider', '-')}",
+        f"- 结论: {ai_data.get('conclusion', '-')}",
+        f"- 风险等级: {ai_data.get('risk_level', '-')}",
+    ]
+    if ai_data.get("analysis"):
+        ai_block.append(f"- 分析: {ai_data.get('analysis')}")
+    if ai_data.get("suggestions"):
+        ai_block.append(f"- 建议: {'; '.join(ai_data.get('suggestions'))}")
+    if ai_data.get("error"):
+        ai_block.append(f"- 错误: {ai_data.get('error')}")
 
-    Behavior:
-        - 使用 ssh_exec_command() 执行命令。
-        - 若返回 "SSH_CONNECTION_FAILED"，立即终止该设备的命令执行。
-        - 为每条命令创建文件：./output/<设备IP>/<command>.txt
-        - 在终端打印执行状态和错误信息。
+    command_section = command_lines or ["- 无命令执行结果"]
+    return "\n".join(
+        [
+            f"# 巡检报告 - {result.get('ip')}",
+            "",
+            "## 基础信息",
+            f"- 执行时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"- IP: {result.get('ip')}",
+            f"- 协议: {result.get('protocol')}",
+            f"- 厂商: {result.get('manuf')}",
+            f"- 结果: {result.get('status')}",
+            "",
+            "## 命令执行",
+            *command_section,
+            "",
+            "## AI 分析",
+            *ai_block,
+            "",
+        ]
+    )
 
-    Notes:
-        - 命令文本用于文件名，因此包含特殊字符（如 '/', '\\', '|', '*' 等）可能导致文件写入失败。
-        - 若写入文件失败，方法会提示错误，但不会中断整体执行流程。
-        - 该函数为操作类函数，不返回数据。
 
-    Exceptions:
-        - 捕获所有执行过程中的异常并打印，不向上抛出异常。
-        - 单条命令的异常不会影响下一条命令的执行（除连接失败情况外）。
+def _run_device_command(device: Dict[str, Any], command: str) -> str:
+    protocol = (device.get("protocol") or "").upper()
+    exec_func = telnet_exec_command if "TELNET" in protocol else ssh_exec_command
+    return exec_func(
+        ip=device.get("ip"),
+        username=device.get("username"),
+        password=device.get("password"),
+        command=command,
+        port=device.get("port"),
+    )
 
-    Returns:
-        None
-    """
+
+def _parse_offline_commands(device: Dict[str, Any]) -> List[Dict[str, str]]:
+    # 兼容不同列名：command / commands / cmd
+    raw = device.get("command")
+    if raw in (None, ""):
+        raw = device.get("commands")
+    if raw in (None, ""):
+        raw = device.get("cmd")
+    if raw is None:
+        return []
+
+    text = str(raw).strip()
+    if not text or text.lower() == "nan":
+        return []
+
+    normalized = text.replace("，", ",").replace("\n", ",")
+    return [{"command": item.strip()} for item in normalized.split(",") if item.strip()]
+
+
+def execute_commands(device: Dict[str, Any], commands: List[Dict[str, str]], run_id: str) -> Dict[str, Any]:
+    ip = device.get("ip") or "unknown_ip"
+    protocol = (device.get("protocol") or "").upper()
+    device_dir = _device_run_dir(run_id, ip)
+    command_dir = os.path.join(device_dir, "commands")
+    os.makedirs(command_dir, exist_ok=True)
+
+    result: Dict[str, Any] = {
+        "run_id": run_id,
+        "ip": ip,
+        "protocol": protocol,
+        "manuf": device.get("manuf") or "-",
+        "status": "SUCCESS",
+        "command_results": [],
+        "raw_output": "",
+        "device_dir": device_dir,
+    }
+
+    raw_blocks: List[str] = []
     for item in commands:
-        command = item['command']
+        command = (item.get("command") or "").strip()
         if not command:
-            continue  # 跳过空行
+            continue
 
-        try:
-            # 通知用户当前执行的命令
-            print(f"{COLOR_BLUE}🚀 正在执行命令: {command} on {device.get('ip')}{COLOR_RESET}")
+        print(f"{COLOR_BLUE}🚀 正在执行命令: {command} on {ip}{COLOR_RESET}")
+        data = _run_device_command(device, command)
+        if data in {"SSH_CONNECTION_FAILED", "TELNET_CONNECTION_FAILED"}:
+            print(f"{COLOR_RED}❌ 设备 {ip} 连接失败，跳过当前设备{COLOR_RESET}")
+            result["status"] = "CONNECTION_FAILED"
+            break
 
-            protocol = (device.get("protocol") or "").upper()
-            exec_func = telnet_exec_command if "TELNET" in protocol else ssh_exec_command
+        safe_name = _safe_filename(command)
+        command_file_path = os.path.join(command_dir, f"{safe_name}.txt")
+        saved = write_text(file_path=command_file_path, content=data)
+        result["command_results"].append(
+            {
+                "command": command,
+                "success": saved,
+                "file_path": command_file_path,
+            }
+        )
 
-            data = exec_func(
-                ip=device.get("ip"),
-                username=device.get("username"),
-                password=device.get("password"),
-                command=command,
-                port=device.get("port")
-            )
+        if saved:
+            raw_blocks.append(f"## {command}\n{data}")
+            print(f"{COLOR_GREEN}✅ {ip} 执行 {command} 回显已写入文件：{command_file_path}{COLOR_RESET}")
+        else:
+            print(f"{COLOR_YELLOW}⚠️ {ip} 执行 {command} 回显为空或写入失败：{command_file_path}{COLOR_RESET}")
 
-            if data in {"SSH_CONNECTION_FAILED", "TELNET_CONNECTION_FAILED"}:
-                print(f"{COLOR_RED}❌ 设备 {device.get('ip')} 连接失败，跳过当前设备{COLOR_RESET}")
-                return
-
-            # 构造文件路径（例如：./output/192.168.1.1/display version.txt）
-            output_dir = os.path.join("output", device.get("ip"))
-            os.makedirs(output_dir, exist_ok=True)
-            file_path = os.path.join(output_dir, f"{command}.txt")
-
-            # 写入文件
-            if write_to_txt(file_path=file_path, content=data):
-                print(f"{COLOR_GREEN}✅ {device.get('ip')} 执行 {command} 回显已写入文件：{file_path}{COLOR_RESET}")
-            else:
-                print(f"{COLOR_RED}❌ {device.get('ip')} 执行 {command} 回显写入失败：{file_path}{COLOR_RESET}")
-
-        except Exception as e:
-            print(f"{COLOR_RED}❌ 设备 {device.get('ip')} 执行 {command} 发生错误: {e}{COLOR_RESET}")
+    result["raw_output"] = "\n\n".join(raw_blocks)
+    write_text(os.path.join(device_dir, "raw_output.txt"), result["raw_output"])
+    return result
 
 
-def query_manuf_command(device, run_mode="ONLINE"):
-    """检查设备品牌并执行默认命令"""
+def _commands_from_device(device: Dict[str, Any], run_mode: str) -> List[Dict[str, str]]:
     if run_mode == "OFFLINE":
-        try:
-            commands = []
-            for i in device.get("commands").split(","):
-                commands.append({"command": i.strip()})
-        except:
-            print(f"{COLOR_RED}⚠️ 设备 {device.get('ip')} 配置的命令格式错误，跳过{COLOR_RESET}")
-            return
-        execute_commands(device, commands)
-    elif run_mode == "ONLINE":
-        target = (device.get("manuf") or "").upper()
-        # 从社区数据库中获取品牌
-        manuf = getManufByName(target)
+        return _parse_offline_commands(device)
 
-        # 数据库中查找不到的品牌，直接报错返回
-        if not manuf:
-            print(f"{COLOR_RED}⚠️ 设备品牌 {device.get('manuf')} 不存在{COLOR_RESET}")
-            return
+    target = (device.get("manuf") or "").upper()
+    manuf = getManufByName(target)
+    if not manuf:
+        return []
+    return getCommand(manuf_id=manuf.get("id")) or []
 
 
-        commands = getCommand(manuf_id=manuf.get("id"))
-        if not commands:
-            print(f"{COLOR_RED}⚠️ 设备品牌 {manuf.get('en_name')} 没有配置命令，跳过{COLOR_RESET}")
-            return
-        execute_commands(device, commands)
-        return
-    
+def query_manuf_command(device: Dict[str, Any], run_mode: str = "ONLINE", run_id: str = "") -> Dict[str, Any]:
+    if not run_id:
+        run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    commands = _commands_from_device(device, run_mode)
+    if not commands:
+        ip = device.get("ip") or "unknown_ip"
+        if run_mode == "OFFLINE":
+            print(
+                f"{COLOR_RED}⚠️ 设备 {ip} 未找到可执行命令，跳过。"
+                f"请检查 Excel 列名 `command`（或兼容 `commands/cmd`）及内容是否为逗号分隔命令。{COLOR_RESET}"
+            )
+        else:
+            print(f"{COLOR_RED}⚠️ 设备 {ip} 未找到可执行命令，可能是厂商未匹配或云端命令为空。{COLOR_RESET}")
+        return {
+            "run_id": run_id,
+            "ip": ip,
+            "protocol": (device.get("protocol") or "").upper(),
+            "manuf": device.get("manuf") or "-",
+            "status": "SKIPPED",
+            "command_results": [],
+            "raw_output": "",
+            "device_dir": _device_run_dir(run_id, ip),
+        }
+
+    result = execute_commands(device, commands, run_id=run_id)
+    ai_result: Dict[str, Any] = {"success": False}
+    if is_ai_enabled() and result.get("raw_output"):
+        ai_result = analyze_inspection_result(result["raw_output"])
+
+    result["ai_analysis"] = ai_result
+    write_json(os.path.join(result["device_dir"], "device_result.json"), result)
+    report_content = _build_device_report(result)
+    report_md_path = os.path.join(result["device_dir"], "report.md")
+    report_pdf_path = os.path.join(result["device_dir"], "report.pdf")
+    report_html_path = os.path.join(result["device_dir"], "report.html")
+    write_text(report_md_path, report_content)
+    write_html(report_html_path, build_device_report_html(result))
+    write_pdf_from_text(report_pdf_path, report_content)
+
+    notify_inspection_result(result)
+    return result

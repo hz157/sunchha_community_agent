@@ -4,6 +4,7 @@ import re
 import logging
 import socket
 import select
+from typing import Optional
 
 PAGE_KEYWORDS = ['More', '--More--', '---- More ----', "Press any key", "继续查看", "下一页"]
 
@@ -160,7 +161,7 @@ def telnet_exec_command(ip: str, username: str, password: str, command: str, por
         return bool(lines and re.search(r"[>#]\s*$", lines[-1]))
 
     output = ""
-    sock: socket.socket | None = None
+    sock: Optional[socket.socket] = None
     start_time = time.time()
     try:
         sock = socket.create_connection((ip, port), timeout=min(15, timeout))
