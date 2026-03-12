@@ -1,5 +1,5 @@
 # 
-<p align="center"><img src= "./docs/images/lg.jpg" alt="Sunchha" width="150" /></p>
+<p align="center"><img src= "./docs/images/logo.jpg" alt="Sunchha" width="150" /></p>
 <h3 align="center">Sunchha</h3>
 <h3 align="center">网络设备自动化巡检工具</h3>
 <p align="center">
@@ -16,18 +16,19 @@
 
 ## 微信聚集地：
 
-  <img src="https://image-service.bytesycn.com/i/2026/2285e2e2-1004-42be-a6ec-885a29b55156.jpg" height="220" />
+  <img src="https://oss-huating-1.bytesycn.cn/images/2026/02/2285e2e2-1004-42be-a6ec-885a29b55156.jpg" height="220" />
 
 ## 目录
 
 - [介绍](#介绍)
+- [界面预览](#界面预览)
 - [核心功能](#核心功能)
 - [应用场景](#应用场景)
 - [离线模式（自定义命令）](#离线模式-自定义命令)
 - [开发环境](#开发环境)
 - [快速上手指南](#快速上手指南)
 - [支持设备列表](#支持设备列表)
-- [计划中的更新](#计划中的更新)
+- [报告展示](#报告展示)
 - [The End](#TheEnd)
 
 ## 介绍
@@ -39,6 +40,22 @@
 
 ![index](./docs/images/2025-03-05_00.19.33.png)
 
+## 界面预览
+
+### 控制台主界面
+
+![console](./docs/images/2025-03-05_00.19.33.png)
+
+### 目标设备模板
+
+![template.xlsx](./docs/images/2025-02-25_22-46-26.png)
+
+### 报告样式预览
+
+![report-preview-1](./docs/images/2025-03-05_00.24.23.png)
+![report-preview-2](./docs/images/067efd19-7d4e-4fbe-9608-d458eb79c679.png)
+![report-preview-3](./docs/images/5347d3b8-c397-4658-9bce-6f0c0c8e1704.png)
+
 
 ## 核心功能
 
@@ -49,10 +66,24 @@
   支持自定义命令与策略，满足各种网络环境下的多样化需求。
 
 - **数据报告与告警**  
-  自动生成详细巡检报告，并在发现异常时及时发出告警。（**功能规划中**）
+  自动生成每台设备报告和批次汇总报告，支持 Markdown / HTML / PDF 输出，并支持 webhook 告警通知。
 
 - **开源安全**  
   完全开源，支持通过 `git clone` 下载代码，自行构建与部署，保障操作的透明性与安全性。
+
+- **AI 分析（新增）**  
+  支持在 `config.yaml` 中按统一字段配置单个 AI 平台（`ai.platform/url/key/model`），自动输出巡检结论、风险等级和建议。
+
+- **多平台 Webhook 通知（新增）**  
+  支持 Telegram、DingTalk、WeCom、Feishu/Lark 等 webhook，采用数组 `webhook.targets` 配置（每项 `platform/url/appid/appsecret/key`），巡检完成后自动发送设备结果与 AI 结论。
+  
+  ![Lark](/docs/images/494d2ba4-7a23-4352-8c34-5317896e9052.png)
+
+- **结构化报告目录（新增）**  
+  巡检输出升级为按运行批次组织：`output/<run_id>/devices/<ip>/`，包含命令回显、设备 JSON 结果和 Markdown 报告，便于检索与归档。
+
+- **并发巡检（新增）**  
+  支持并发执行巡检任务（`inspection.concurrency`），并带并发上限保护（`inspection.max_concurrency`），避免对网络设备造成瞬时压力。
 
 
 
@@ -93,7 +124,7 @@ show interface status,show version
 
 
 ## 开发环境
-- Python 3.13.1 
+- Python 3.9+ 
 
 ## 快速上手指南
 1. 克隆本仓库
@@ -101,9 +132,7 @@ show interface status,show version
 git clone https://github.com/hz157/sunchha_community_agent
 cd sunchha
 ```
-2. 编辑待检测的目标文档excel [target/template.xlsx](./target/template.xlsx) 编辑完毕后将excel重命名为target.xlsx，路径不变（target/target.xlsx)
-
-![template.xlsx](./docs/images/2025-02-25_22-46-26.png)
+2. 编辑待检测的目标文档excel [target/template.xlsx](./target/template.xlsx) 编辑完毕后将excel重命名为target.xlsx，路径不变（target/target.xlsx）
 
 3. Windows 创建并激活python虚拟环境
 ```
@@ -112,12 +141,38 @@ python -m venv venv
 pip install -r requirements.txt
 python main.py
 ```
-3. Linux 创建并激活python虚拟环境
+4. Linux 创建并激活python虚拟环境
 ```
 python -m venv venv
 source ./venv/bin/activate
 pip install -r requirements.txt
 python main.py
+```
+
+5. 按需调整 `config.yaml`
+
+```yaml
+run_mode: offline
+
+inspection:
+  concurrency: 5
+  max_concurrency: 20
+
+ai:
+  enabled: true
+  platform: "openai" # 也支持 qwen/deepseek/kimi/tencentcloud/ollama
+  url: "https://api.openai.com/v1"
+  key: ""
+  model: "gpt-4.1"
+
+webhook:
+  enabled: false
+  targets:
+    - platform: "telegram"
+      url: ""
+      appid: ""
+      appsecret: ""
+      key: ""
 ```
 
 
@@ -129,19 +184,39 @@ python main.py
 
 如果你有其他的可以提供issue或发送品牌及巡检命令和说明到[ryanzhang@bytesycn.com](ryanzhang@bytesycn.com)
 
-## 计划中的更新
-目前计划中的更新主要有两个
-1. 导出报告 PDF格式或HTML格式；
-2. AI分析巡检结果并输出到计划1中的报告。
+## 报告展示
 
+工具会在每次巡检后生成以下报告：
 
+1. 每台设备报告  
+路径：`output/<run_id>/devices/<ip>/report.md`、`report.html`、`report.pdf`
 
-<!-- ## 报告样式
-当前开发中的报告样式为HTML，可交换式报告以及PDF格式的报告。
-![report](./docs/images/2025-03-05_00.24.23.png) -->
+2. 整次巡检汇总报告  
+路径：`output/<run_id>/run_summary.md`、`run_summary.html`、`run_summary.pdf`
+
+报告包含：
+
+- 设备状态与命令执行明细
+- AI 分析结论与风险等级
+- 批次级统计信息（成功/失败/跳过）
+
+### 新版汇总报告（HTML）
+
+![run-summary-html](./docs/images/067efd19-7d4e-4fbe-9608-d458eb79c679.png)
+
+### 新版设备报告（HTML）
+
+![device-report-html](./docs/images/5347d3b8-c397-4658-9bce-6f0c0c8e1704.png)
+
+### 设备报告（PDF）
+
+![device-report-pdf](./docs/images/50989e27-0c12-4fa5-8f37-ea2c2c18ebd1.png)
+
+### Webhook 通知效果示例
+
+![webhook-preview](./docs/images/494d2ba4-7a23-4352-8c34-5317896e9052.png)
 
 
 ## TheEnd
 欢迎大家Star、使用并贡献代码，共同推动网络自动化运维的进步！<br>
 愿 **Sunchha** 成为你在网络巡检工作中的得力助手，释放双手，拥抱无限可能！
-
