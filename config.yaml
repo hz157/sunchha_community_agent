@@ -1,0 +1,38 @@
+run_mode: offline
+community_api: "https://api-community-sunchha.bytesycn.cn/api/v1"
+user_agent: "Sunchha_Community/1.0.0"
+
+inspection:
+  concurrency: 5 # 并发巡检线程数，1表示串行
+  max_concurrency: 20 # 并发硬上限保护
+
+ai:
+  enabled: true
+  platform: "New-API" # openai / qwen / tencentcloud / deepseek / kimi / ollama(或ollma)
+  url: "http://192.168.1.1:11511/v1"
+  key: "sk-rHSnsi5Pl7KElsQxaDdfdfYMwpq2oNXblsqVRd7C2"
+  model: "Qwen-Plus"
+  system_prompt: "你是资深网络巡检分析助手，请输出清晰结论、风险等级和可执行建议。"
+
+# 本地 Ollama 示例（启用时可将 ai 节替换为以下值）
+# ai:
+#   enabled: true
+#   platform: "ollama"
+#   url: "http://127.0.0.1:11434"
+#   key: ""   # ollama 可留空
+#   model: "qwen2.5:7b"
+#   system_prompt: "你是资深网络巡检分析助手，请输出清晰结论、风险等级和可执行建议。"
+
+webhook:
+  enabled: true
+  targets:
+    - platform: "telegram"
+      url: ""
+      appid: ""
+      appsecret: ""
+      key: ""
+    - platform: "feishu"
+      url: "https://open.feishu.cn/open-apis/bot/v2/hook/3d6fgs55e-13e5-4a34-9a96-e63dfdf70"
+      appid: ""
+      appsecret: ""
+      key: ""
